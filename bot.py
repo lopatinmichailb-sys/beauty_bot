@@ -1,14 +1,16 @@
+import os
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiohttp import web
+from aiogram.webhook.aiohttp_handler import SimpleRequestHandler, setup_application
 
+# Берем токен из файла настроек
 from config import TOKEN
 
 logging.basicConfig(level=logging.INFO)
-
-# Чистый стандартный запуск без прокси
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -53,9 +55,25 @@ async def show_contacts(message: types.Message):
     )
     await message.answer(text, parse_mode="Markdown")
 
-async def main():
+async def on_startup(bot: Bot):
+    # Очищаем старые зависшие обновления
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+
+def main():
+    # Создаем полноценное веб-приложение, которое займет порт для Render
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dp, bot=bot)
+    setup_application(app, dp, bot=bot)
+    app.on_startup.append(on_startup)
+    
+    # Читаем порт, который требует сервер Render (по умолчанию 8080)
+    port = int(os.getenv("PORT", 8080))
+    
+    # Запускаем фоновый опрос параллельно с пустым веб-сервером для удержания порта
+    loop = asyncio.get_event_loop()
+    loop.create_task(dp.start_polling(bot))
+    
+    web.run_app(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
